@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GrabPack Pro: Full Huggy & Fixes ✋👹💜</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #000; position: fixed; touch-action: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #reticle { position: absolute; top: 50%; left: 50%; width: 15px; height: 15px; border: 2px solid white; border-radius: 50%; transform: translate(-50%, -50%); z-index: 100; pointer-events: none; }
+        
+        /* Tombol UI */
+        .ui-btn { position: absolute; border-radius: 50%; border: 2px solid white; z-index: 1000; display: flex; align-items: center; justify-content: center; font-family: sans-serif; font-weight: bold; color: white; user-select: none; background: rgba(0,0,0,0.6); }
+        #btn-left { bottom: 120px; right: 25px; width: 80px; height: 80px; background: rgba(0, 85, 255, 0.7); font-size: 24px; }
+        #btn-right { bottom: 25px; right: 120px; width: 80px; height: 80px; background: rgba(255, 0, 0, 0.7); font-size: 24px; }
+        #btn-jump { bottom: 210px; right: 35px; width: 55px; height: 55px; font-size: 10px; }
+        #btn-crouch { bottom: 35px; right: 215px; width: 55px; height: 55px; font-size: 10px; }
+        #btn-swap { top: 20px; left: 20px; width: 140px; height: 45px; border-radius: 10px; font-size: 10px; background: #333; border: 2px solid #fff; }
+        
+        #joystick-area { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 150px; z-index: 500; } 
+        
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(17,17,17,1); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 99999; font-family: sans-serif; text-align: center; }
+        #start-btn { padding: 20px 50px; font-size: 22px; background: #0055ff; color: #fff; border: 3px solid white; border-radius: 15px; cursor: pointer; margin-top: 20px; font-weight: bold; pointer-events: auto; }
+    </style>
+</head>
+<body>
+    <div id="reticle"></div>
+    <div id="overlay">
+        <h2>FIX PELURU, AUDIO & HUGGY LENGKAP 👹</h2>
+        <p>Huggy Wuggy sekarang punya tangan & kaki!<br>Suara GrabPack dan Peluru Oren sudah kembali normal.</p>
+        <button id="start-btn">MULAI BERTAHAN HIDUP</button>
+    </div>
+    
+    <div id="btn-left" class="ui-btn">L</div>
+    <div id="btn-right" class="ui-btn">R</div>
+    <div id="btn-jump" class="ui-btn">JUMP</div>
+    <div id="btn-crouch" class="ui-btn">DOWN</div>
+    <div id="btn-swap" class="ui-btn">SWAP: RED</div>
+    <div id="joystick-area"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.9.0/nipplejs.min.js"></script>
+
+    <script>
+        // --- 1. SETUP DASAR ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050505);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        camera.rotation.order = 'YXZ'; 
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        const ambient = new THREE.AmbientLight(0xffffff, 0.5); scene.add(ambient);
+        const pointL = new THREE.PointLight(0x00ff44, 0, 5); camera.add(pointL); scene.add(camera);
+        scene.add(new THREE.GridHelper(200, 100, 0x00ff00, 0x00ff00));
+
+        // --- 2. AUDIO SETUP (FIXED) ---
+        let listener = new THREE.AudioListener();
+        let soundZap = new THREE.Audio(listener);
+        let audioContextResumed = false;
+
+        // --- 3. MATERIALS & HANDS ---
+        const handMats = {
+            blue: new THREE.MeshPhongMaterial({ color: 0x0055ff, shininess: 80 }),
+            red: new THREE.MeshPhongMaterial({ color: 0xff1111, shininess: 80 }),
+            green: new THREE.MeshPhongMaterial({ color: 0x00ff44, shininess: 80 }),
+            greenCharged: new THREE.MeshPhongMaterial({ color: 0xccff00, emissive: 0x00ff44, emissiveIntensity: 2 }),
+            orange: new THREE.MeshPhongMaterial({ color: 0xff8800, shininess: 80 }),
+            purple: new THREE.MeshPhongMaterial({ color: 0xaa00ff, shininess: 80 })
+        };
+
+        function createNormalHand(colorMat) {
+            const g = new THREE.Group();
+            const palm = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.1), colorMat); g.add(palm);
+            for(let i=0; i<4; i++) {
+                const f = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.35, 0.08), colorMat);
+                f.position.set(-0.13 + (i*0.09), 0.3, 0); g.add(f);
+            }
+            const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.08), colorMat);
+            thumb.position.set(0.22, 0.1, 0); g.add(thumb);
+            return g;
+        }
+
+        function createPistolHand() {
+            const g = new THREE.Group();
+            const palm = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.12), handMats.orange); g.add(palm);
+            const index = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.4), handMats.orange);
+            index.position.set(-0.1, 0.15, -0.2); g.add(index);
+            const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.25, 0.08), handMats.orange);
+            thumb.position.set(0.2, 0.25, 0); g.add(thumb);
+            const curled = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.15, 0.15), handMats.orange);
+            curled.position.set(0.06, -0.1, 0.08); g.add(curled);
+            g.visible = false; return g;
+        }
+
+        function setupHand(side) {
+            const wrap = new THREE.Group();
+            const normal = createNormalHand(side === "left" ? handMats.blue : handMats.red);
+            const pistol = side === "right" ? createPistolHand() : null;
+            wrap.add(normal); if(pistol) wrap.add(pistol);
+            const rope = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1), new THREE.MeshBasicMaterial({color: 0x222222}));
+            rope.visible = false; scene.add(rope);
+            const offset = new THREE.Vector3(side === "left" ? -0.75 : 0.75, -0.45, -1.2);
+            scene.add(wrap);
+            return { group: wrap, normal, pistol, rope, side, active: false, timer: 0, targetW: new THREE.Vector3(), offset, state: 0, grabbedObj: null, charged: false, chargeTimer: 0 };
+        }
+
+        const handL = setupHand("left"); const handR = setupHand("right");
+
+        // --- 4. PUZZLE ELEMENTS ---
+        const interactables = [];
+
+        const doorLM = new THREE.Mesh(new THREE.BoxGeometry(5, 8, 0.5), new THREE.MeshStandardMaterial({color: 0x222222}));
+        doorLM.position.set(0, 4, -15); scene.add(doorLM);
+        const scB = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.2), new THREE.MeshBasicMaterial({color: 0x0055ff}));
+        scB.position.set(-3, 2, -14.7); scene.add(scB); interactables.push(scB);
+        const scR = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.2), new THREE.MeshBasicMaterial({color: 0xff0000}));
+        scR.position.set(3, 2, -14.7); scene.add(scR); interactables.push(scR);
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshStandardMaterial({color: 0x8B4513}));
+        box.position.set(0, 0.75, -8); scene.add(box); interactables.push(box);
+
+        const greenSocket = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.2, 6), new THREE.MeshBasicMaterial({color: 0x00ff44}));
+        greenSocket.rotation.x = Math.PI/2; greenSocket.position.set(-8, 3, -10); scene.add(greenSocket); interactables.push(greenSocket);
+        const greenReceiver = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.2, 3), new THREE.MeshBasicMaterial({color: 0x333333}));
+        greenReceiver.rotation.x = Math.PI/2; greenReceiver.position.set(8, 3, -10); scene.add(greenReceiver); interactables.push(greenReceiver);
+        const greenDoor = new THREE.Mesh(new THREE.BoxGeometry(4, 6, 0.5), new THREE.MeshStandardMaterial({color: 0x111111}));
+        greenDoor.position.set(10, 3, -10.5); scene.add(greenDoor);
+
+        const blueButton = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.2, 32), new THREE.MeshBasicMaterial({color: 0x0055ff}));
+        blueButton.rotation.z = Math.PI/2; blueButton.position.set(-15, 3, -5); scene.add(blueButton); interactables.push(blueButton);
+
+        const purplePad = new THREE.Mesh(new THREE.BoxGeometry(2, 0.2, 2), new THREE.MeshBasicMaterial({color: 0xaa00ff}));
+        purplePad.position.set(5, 0.1, -5); scene.add(purplePad); interactables.push(purplePad);
+
+        let blueOn = false, redOn = false, greenDoorTimer = 0;
+
+        // --- 5. FULL HUGGY WUGGY MODEL (BADAN, TANGAN, KAKI) ---
+        let huggyActive = false;
+        const huggyGroup = new THREE.Group();
+        const matBlue = new THREE.MeshBasicMaterial({color: 0x0033cc});
+        const matYellow = new THREE.MeshBasicMaterial({color: 0xdddd00});
+
+        // Kaki (Legs)
+        const hLegL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), matBlue); hLegL.position.set(-0.35, 0.75, 0); huggyGroup.add(hLegL);
+        const hLegR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.5, 0.4), matBlue); hLegR.position.set(0.35, 0.75, 0); huggyGroup.add(hLegR);
+        // Telapak Kaki (Kuning)
+        const hFootL = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.6), matYellow); hFootL.position.set(-0.35, 0.15, 0.1); huggyGroup.add(hFootL);
+        const hFootR = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.6), matYellow); hFootR.position.set(0.35, 0.15, 0.1); huggyGroup.add(hFootR);
+        
+        // Badan (Body)
+        const hBody = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.0, 0.8), matBlue); hBody.position.y = 2.5; huggyGroup.add(hBody);
+        
+        // Tangan (Arms)
+        const hArmL = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.8, 0.35), matBlue); hArmL.position.set(-0.8, 2.4, 0); huggyGroup.add(hArmL);
+        const hArmR = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.8, 0.35), matBlue); hArmR.position.set(0.8, 2.4, 0); huggyGroup.add(hArmR);
+        // Telapak Tangan (Kuning)
+        const hHandHL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), matYellow); hHandHL.position.set(-0.8, 1.4, 0); huggyGroup.add(hHandHL);
+        const hHandHR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), matYellow); hHandHR.position.set(0.8, 1.4, 0); huggyGroup.add(hHandHR);
+
+        // Kepala (Head) & Muka
+        const hHead = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.0), matBlue); hHead.position.y = 4.0; huggyGroup.add(hHead);
+        const hEyeL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.1), new THREE.MeshBasicMaterial({color: 0xffffff}));
+        hEyeL.position.set(-0.25, 4.2, 0.51); huggyGroup.add(hEyeL);
+        const hEyeR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.1), new THREE.MeshBasicMaterial({color: 0xffffff}));
+        hEyeR.position.set(0.25, 4.2, 0.51); huggyGroup.add(hEyeR);
+        const hMouth = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.2, 0.1), new THREE.MeshBasicMaterial({color: 0xff0000}));
+        hMouth.position.set(0, 3.8, 0.51); huggyGroup.add(hMouth);
+
+        huggyGroup.position.set(0, 0, -35); huggyGroup.visible = false; scene.add(huggyGroup);
+
+        // --- 6. LOGIKA KONTROL ---
+        let flares = [];
+        let player = { h: 1.6, tH: 1.6, v: 0, jump: false, crouch: false, speed: 0.15 };
+        let joy = { x: 0, y: 0 }, yaw = 0, pitch = 0, tStart = { x: 0, y: 0 };
+
+        nipplejs.create({ zone: document.getElementById('joystick-area'), mode: 'static', position: {left:'75px', bottom:'75px'} })
+        .on('move', (e, d) => { joy = d.vector; player.speed = d.distance > 45 ? 0.24 : 0.12; })
+        .on('end', () => { joy = { x: 0, y: 0 }; });
+
+        document.addEventListener('touchstart', (e) => { tStart.x = e.touches[0].pageX; tStart.y = e.touches[0].pageY; });
+        document.addEventListener('touchmove', (e) => {
+            if (e.target.closest('.ui-btn') || e.target.closest('.nipple')) return;
+            yaw -= (e.touches[0].pageX - tStart.x) * 0.005;
+            pitch = Math.max(-1.3, Math.min(1.3, pitch - (e.touches[0].pageY - tStart.y) * 0.005));
+            tStart.x = e.touches[0].pageX; tStart.y = e.touches[0].pageY;
+        });
+
+        // --- 7. AKSI TEMBAK (AUDIO FIXED) ---
+        function shoot(h) {
+            if (h.active) return;
+            
+            // Audio Tembakan
+            if (soundZap.buffer) {
+                if (soundZap.isPlaying) soundZap.stop();
+                soundZap.play();
+            }
+
+            const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+            const anchor = h.offset.clone().applyMatrix4(camera.matrixWorld);
+
+            // Tembak Peluru Oren
+            if (h.state === 2) { 
+                const flare = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({color: 0xffaa00}));
+                flare.position.copy(anchor.clone().add(dir.multiplyScalar(0.5)));
+                flare.userData = { vel: dir.multiplyScalar(0.7), life: 60 };
+                scene.add(flare); flares.push(flare);
+                h.active = true; h.timer = 0; h.grabbedObj = "recoil"; return;
+            }
+
+            h.active = true; h.timer = 0; h.grabbedObj = null;
+            const ray = new THREE.Raycaster(camera.position, dir);
+            const hits = ray.intersectObjects(interactables);
+            
+            if(hits.length > 0) {
+                const target = hits[0].object;
+                h.targetW.copy(hits[0].point);
+                if(target === scB && h.side === "left") { blueOn = true; scB.material.color.set(0x00ff00); }
+                if(target === scR && h.state === 0) { redOn = true; scR.material.color.set(0x00ff00); }
+                if(target === box) h.grabbedObj = box;
+                if(target === greenSocket && h.state === 1) { h.charged = true; h.chargeTimer = 400; }
+                if(target === greenReceiver && h.charged) { greenDoorTimer = 300; h.charged = false; }
+                if(target === blueButton && h.side === "left") { blueButton.material.color.set(0x00ff00); huggyActive = true; huggyGroup.visible = true; }
+                if(target === purplePad && h.state === 3) { player.v = 0.35; player.jump = true; }
+            } else {
+                h.targetW.copy(camera.position.clone().add(dir.multiplyScalar(15)));
+            }
+        }
+
+        function toggleSwap() {
+            if (handR.active) return;
+            handR.state = (handR.state + 1) % 4; 
+            const btn = document.getElementById('btn-right');
+            const btnS = document.getElementById('btn-swap');
+            
+            if(handR.state === 0) { 
+                handR.normal.visible = true; handR.pistol.visible = false;
+                handR.normal.children.forEach(c => c.material = handMats.red);
+                btn.style.background = "rgba(255,0,0,0.7)"; btnS.innerText = "SWAP: RED";
+            } else if(handR.state === 1) { 
+                handR.normal.children.forEach(c => c.material = handMats.green);
+                btn.style.background = "rgba(0,255,100,0.7)"; btnS.innerText = "SWAP: GREEN";
+            } else if(handR.state === 2) { 
+                handR.normal.visible = false; handR.pistol.visible = true;
+                btn.style.background = "rgba(255,136,0,0.7)"; btnS.innerText = "SWAP: ORANGE";
+            } else if(handR.state === 3) { 
+                handR.normal.visible = true; handR.pistol.visible = false;
+                handR.normal.children.forEach(c => c.material = handMats.purple);
+                btn.style.background = "rgba(170,0,255,0.7)"; btnS.innerText = "SWAP: PURPLE";
+            }
+        }
+
+        document.getElementById('btn-left').ontouchstart = (e) => { e.preventDefault(); shoot(handL); };
+        document.getElementById('btn-right').ontouchstart = (e) => { e.preventDefault(); shoot(handR); };
+        document.getElementById('btn-swap').onclick = (e) => { e.preventDefault(); toggleSwap(); };
+        document.getElementById('btn-jump').ontouchstart = (e) => { e.preventDefault(); if(!player.jump){ player.v = 0.16; player.jump = true; } };
+        document.getElementById('btn-crouch').ontouchstart = (e) => { e.preventDefault(); player.crouch = !player.crouch; player.tH = player.crouch ? 0.8 : 1.6; };
+
+        // --- 8. ANIMATE & UPDATE FLARES (FIXED) ---
+        function updateH(h) {
+            const worldAnchor = h.offset.clone().applyMatrix4(camera.matrixWorld);
+            if (h.state === 1) {
+                if (h.charged) {
+                    h.chargeTimer--; h.normal.children.forEach(c => c.material = handMats.greenCharged);
+                    pointL.intensity = 1.5; if(h.chargeTimer <= 0) h.charged = false;
+                } else {
+                    h.normal.children.forEach(c => c.material = handMats.green);
+                    if(h.side === "right") pointL.intensity = 0;
+                }
+            }
+            if (!h.active) {
+                h.group.position.copy(worldAnchor); h.group.quaternion.copy(camera.quaternion); h.rope.visible = false;
+            } else {
+                h.timer += 0.08;
+                if (h.grabbedObj === "recoil") {
+                    let rec = Math.sin(h.timer * Math.PI) * 0.2;
+                    const recA = h.offset.clone(); recA.z += rec;
+                    h.group.position.copy(recA.applyMatrix4(camera.matrixWorld));
+                    h.group.quaternion.copy(camera.quaternion);
+                    if (h.timer >= 1.0) h.active = false;
+                } else {
+                    let p = (h.timer < 1) ? h.timer : (h.timer < 1.3) ? 1 : Math.max(0, 1 - (h.timer - 1.3));
+                    const cur = new THREE.Vector3().lerpVectors(worldAnchor, h.targetW, p);
+                    h.group.position.copy(cur); h.group.quaternion.copy(camera.quaternion);
+                    if(h.timer > 1.3 && h.grabbedObj === box) { h.grabbedObj.position.x = cur.x; h.grabbedObj.position.z = cur.z; }
+                    h.rope.visible = true; const d = cur.distanceTo(worldAnchor);
+                    h.rope.scale.set(1, 1, d || 0.1);
+                    h.rope.position.copy(worldAnchor.clone().add(cur.clone().sub(worldAnchor).multiplyScalar(0.5)));
+                    h.rope.lookAt(cur); if (h.timer >= 2.3) h.active = false;
+                }
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            camera.rotation.set(pitch, yaw, 0);
+            const f = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion); f.y = 0; f.normalize();
+            const r = new THREE.Vector3().crossVectors(f, new THREE.Vector3(0, 1, 0));
+            camera.position.add(f.multiplyScalar(joy.y * player.speed));
+            camera.position.add(r.multiplyScalar(joy.x * player.speed));
+
+            camera.position.y += player.v;
+            if(camera.position.y > player.h) player.v -= 0.008;
+            else { camera.position.y = player.h; player.v = 0; player.jump = false; }
+            player.h += (player.tH - player.h) * 0.1;
+
+            if(blueOn && redOn && doorLM.position.y < 11) doorLM.position.y += 0.08;
+            if(greenDoorTimer > 0) { 
+                greenDoorTimer--; greenReceiver.material.color.set(0x00ff44);
+                if(greenDoor.position.y < 9) greenDoor.position.y += 0.1;
+            } else {
+                greenReceiver.material.color.set(0x333333);
+                if(greenDoor.position.y > 3) greenDoor.position.y -= 0.05;
+            }
+
+            // FIX: LOGIKA PERGERAKAN PELURU (FLARE)
+            for(let i=flares.length-1; i>=0; i--) {
+                flares[i].position.add(flares[i].userData.vel); 
+                flares[i].userData.life--;
+                if(flares[i].userData.life <= 0) { 
+                    scene.remove(flares[i]); 
+                    flares.splice(i,1); 
+                }
+            }
+
+            // LOGIKA HUGGY MENGEJAR
+            if(huggyActive) {
+                const dirH = new THREE.Vector3().subVectors(camera.position, huggyGroup.position);
+                dirH.y = 0; dirH.normalize();
+                huggyGroup.position.add(dirH.multiplyScalar(0.065));
+                huggyGroup.lookAt(camera.position.x, 0, camera.position.z);
+                
+                // Animasi jalan Huggy Wuggy sederhana (Tangan ngayun)
+                const time = Date.now() * 0.005;
+                hArmL.rotation.x = Math.sin(time) * 0.5;
+                hArmR.rotation.x = -Math.sin(time) * 0.5;
+                hLegL.rotation.x = -Math.sin(time) * 0.5;
+                hLegR.rotation.x = Math.sin(time) * 0.5;
+
+                if(new THREE.Vector3(camera.position.x, 0, camera.position.z).distanceTo(new THREE.Vector3(huggyGroup.position.x, 0, huggyGroup.position.z)) < 1.5) {
+                    huggyActive = false; alert("TERTANGKAP HUGGY WUGGY!"); location.reload();
+                }
+            }
+
+            updateH(handL); updateH(handR);
+            renderer.render(scene, camera);
+        }
+
+        // --- 9. EVENT LISTENER MULAI ---
+        document.getElementById('start-btn').addEventListener('click', (e) => {
+            e.stopPropagation(); 
+            document.getElementById('overlay').style.display = 'none';
+            
+            // LOAD AUDIO LAGI (FIX)
+            if (!audioContextResumed) {
+                THREE.AudioContext.getContext().resume();
+                camera.add(listener);
+                new THREE.AudioLoader().load('zap.mp3', (b) => soundZap.setBuffer(b));
+                audioContextResumed = true;
+            }
+            
+            if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+            if(screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+            
+            animate();
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
